@@ -25,11 +25,15 @@
   .kpi b { display:block; font-size:24px; }
   .kpi span { color:var(--teks2); font-size:12px; }
   .waktu { font-size:12px; color:var(--teks2); }
+  .memuat { position:fixed; inset:0; z-index:4; display:none; place-items:center; background:var(--bg); color:var(--teks2); text-align:center; font-size:13px; }
+  .memuat.buka { display:grid; }
+  .memuat img { width:64px; height:64px; border-radius:14px; display:block; margin:0 auto 14px; }
   button { font:inherit; font-weight:700; color:#fff; background:var(--aksen); border:0; border-radius:10px; padding:11px 18px; cursor:pointer; }
 </style>
 </head>
 <body>
 <iframe id="aplikasi" title="GIATS Workspace" allow="clipboard-write"></iframe>
+<div class="memuat" id="memuat" role="status"><div><img src="ikon-192.png" alt="">Memuat GIATS Workspace…</div></div>
 
 <section class="luring" id="luring" aria-live="polite">
   <div class="kotak">
@@ -45,23 +49,52 @@
 <script>
 (function () {
   var ALAMAT = 'https://script.google.com/macros/s/AKfycbw317e-PHzt8ODMDH6EzJVc9ID-Dzp9F1lt4JLNyr8vpqQx0B0Lt5wrdGgl-MHiPOuc/exec';
-  var KUNCI = 'gw.ringkasanTerakhir';
+  var KUNCI = 'gw.ringkasanTerakhir', KUNCI_SESI = 'gw.sesiAplikasi', KUNCI_TANPA_KUKI = 'gw.tanpaKuki', KUNCI_LANGSUNG = 'gw.bukaLangsung';
   var $ = function (id) { return document.getElementById(id); };
-  var bingkai = $('aplikasi'), dimuat = false;
+  var bingkai = $('aplikasi'), dimuat = false, tunggu = null;
+
+  var ambil = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  var taruh = function (k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} };
+  var masihBerlaku = function (k, hari) { var t = Number(ambil(k) || 0); return t && Date.now() - t < hari * 864e5; };
 
   /* Teruskan ?app=... dari alamat PWA ke Apps Script, misalnya ./?app=roster */
   function alamatAplikasi() {
     var q = location.search && location.search.length > 1 ? location.search : '';
     return ALAMAT + q;
   }
+
+  /* Urutan pemuatan:
+   * 1. Bingkai biasa.
+   * 2. Bila aplikasi tidak memberi tanda "siap" dalam 8 detik (misalnya galat Google Drive karena
+   *    banyak akun Google di ponsel), bingkai dimuat ulang tanpa kuki Google (credentialless);
+   *    pilihan ini diingat 30 hari.
+   * 3. Bila tetap gagal dalam 15 detik, halaman pindah langsung ke alamat Apps Script (diingat 7 hari). */
+  function pasangBingkai(tanpaKuki) {
+    var b = document.createElement('iframe');
+    b.id = 'aplikasi'; b.title = 'GIATS Workspace'; b.setAttribute('allow', 'clipboard-write');
+    if (tanpaKuki) b.setAttribute('credentialless', '');
+    bingkai.replaceWith(b); bingkai = b;
+    b.src = alamatAplikasi();
+  }
+  function bukaLangsung() { taruh(KUNCI_LANGSUNG, String(Date.now())); location.replace(alamatAplikasi()); }
   function muat() {
     if (!navigator.onLine) { tampilLuring(); return; }
+    if (masihBerlaku(KUNCI_LANGSUNG, 7)) { location.replace(alamatAplikasi()); return; }
     $('luring').classList.remove('buka');
-    bingkai.src = alamatAplikasi();
+    $('memuat').classList.add('buka');
     dimuat = true;
+    var tanpaKuki = masihBerlaku(KUNCI_TANPA_KUKI, 30);
+    pasangBingkai(tanpaKuki);
+    clearTimeout(tunggu);
+    if (tanpaKuki) tunggu = setTimeout(bukaLangsung, 15000);
+    else tunggu = setTimeout(function () {
+      taruh(KUNCI_TANPA_KUKI, String(Date.now()));
+      pasangBingkai(true);
+      tunggu = setTimeout(bukaLangsung, 15000);
+    }, 8000);
   }
 
-  function simpanan() { try { return JSON.parse(localStorage.getItem(KUNCI) || 'null'); } catch (e) { return null; } }
+  function simpanan() { try { return JSON.parse(ambil(KUNCI) || 'null'); } catch (e) { return null; } }
   function tampilLuring() {
     var s = simpanan(), d = s && s.data;
     var baris = d ? [
@@ -74,16 +107,33 @@
     $('waktu').textContent = s ? 'Tersimpan ' + new Date(s.pada).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : 'Ringkasan hanya tersedia setelah masuk saat online.';
     $('luring').classList.add('buka');
   }
+  function lupakan() { taruh(KUNCI, null); taruh(KUNCI_SESI, null); }
 
-  /* Angka ringkasan dikirim oleh beranda (tanpa nama atau nominal uang). */
   window.addEventListener('message', function (e) {
     if (!/\.googleusercontent\.com$/.test(new URL(e.origin).hostname)) return;
     var m = e.data;
-    if (!m) return;
-    /* Keluar atau sesi habis: ringkasan dihapus agar tidak tampil untuk orang lain. */
-    if (m.gw === 'keluar') { try { localStorage.removeItem(KUNCI); } catch (x) {} return; }
-    if (m.gw !== 'ringkasan' || typeof m.data !== 'object') return;
-    try { localStorage.setItem(KUNCI, JSON.stringify({ data: m.data, pada: m.pada || Date.now() })); } catch (x) {}
+    if (!m || typeof m.gw !== 'string') return;
+    /* Aplikasi tampil di dalam bingkai: layar memuat ditutup dan langkah cadangan dibatalkan. */
+    clearTimeout(tunggu); $('memuat').classList.remove('buka');
+    if (m.gw === 'siap') {
+      taruh(KUNCI_LANGSUNG, null);
+      if (!m.adaSesi) {
+        var s = ambil(KUNCI_SESI);
+        if (s) { try { e.source.postMessage({ gw: 'sesiAwal', sesi: JSON.parse(s) }, e.origin); } catch (x) {} }
+        else taruh(KUNCI, null);
+      }
+      return;
+    }
+    /* Sesi dititipkan di sini karena bingkai tanpa kuki tidak menyimpan apa pun setelah ditutup. */
+    if (m.gw === 'sesi') {
+      if (m.sesi && m.sesi.token) taruh(KUNCI_SESI, JSON.stringify({ token: String(m.sesi.token), nama: String(m.sesi.nama || ''), peran: String(m.sesi.peran || '') }));
+      else lupakan();
+      return;
+    }
+    /* Keluar atau sesi habis: ringkasan dan sesi titipan dihapus agar tidak tampil untuk orang lain. */
+    if (m.gw === 'keluar') { lupakan(); return; }
+    /* Angka ringkasan dikirim oleh beranda (tanpa nama atau nominal uang). */
+    if (m.gw === 'ringkasan' && typeof m.data === 'object') taruh(KUNCI, JSON.stringify({ data: m.data, pada: m.pada || Date.now() }));
   });
 
   /* Saat aplikasi sudah terbuka, pemberitahuan koneksi ditangani oleh aplikasi itu sendiri. */
