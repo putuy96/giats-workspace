@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>GIATS Workspace</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0f18">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="GIATS">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root { --bg:#0a0f18; --panel:#111827; --garis:#1f2937; --teks:#e6eaf2; --teks2:#9aa4b6; --aksen:#3b82f6; --awas:#f59e0b; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--teks); font:14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  iframe { position:fixed; inset:0; width:100%; height:100%; border:0; background:var(--bg); }
+  .luring { position:fixed; inset:0; display:none; overflow:auto; padding:max(24px, env(safe-area-inset-top)) 20px 32px; background:var(--bg); }
+  .luring.buka { display:block; }
+  .kotak { max-width:560px; margin:0 auto; }
+  h1 { font-size:20px; margin:22px 0 4px; }
+  p { color:var(--teks2); margin:0 0 16px; }
+  .kpi { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; margin:18px 0; }
+  .kpi div { background:var(--panel); border:1px solid var(--garis); border-radius:14px; padding:14px; }
+  .kpi b { display:block; font-size:24px; }
+  .kpi span { color:var(--teks2); font-size:12px; }
+  .waktu { font-size:12px; color:var(--teks2); }
+  button { font:inherit; font-weight:700; color:#fff; background:var(--aksen); border:0; border-radius:10px; padding:11px 18px; cursor:pointer; }
+</style>
+</head>
+<body>
+<iframe id="aplikasi" title="GIATS Workspace" allow="clipboard-write"></iframe>
+
+<section class="luring" id="luring" aria-live="polite">
+  <div class="kotak">
+    <img src="ikon-192.png" alt="GIATS" width="64" height="64" style="border-radius:14px;display:block">
+    <h1>Sedang tidak terhubung ke internet</h1>
+    <p>GIATS Workspace butuh internet untuk membuka data terbaru. Di bawah ini ringkasan terakhir yang tersimpan di perangkat ini.</p>
+    <div class="kpi" id="kpi"></div>
+    <div class="waktu" id="waktu"></div>
+    <p style="margin-top:18px"><button type="button" id="ulang">Coba sambungkan lagi</button></p>
+  </div>
+</section>
+
+<script>
+(function () {
+  var ALAMAT = 'https://script.google.com/macros/s/AKfycbw317e-PHzt8ODMDH6EzJVc9ID-Dzp9F1lt4JLNyr8vpqQx0B0Lt5wrdGgl-MHiPOuc/exec';
+  var KUNCI = 'gw.ringkasanTerakhir';
+  var $ = function (id) { return document.getElementById(id); };
+  var bingkai = $('aplikasi'), dimuat = false;
+
+  /* Teruskan ?app=... dari alamat PWA ke Apps Script, misalnya ./?app=roster */
+  function alamatAplikasi() {
+    var q = location.search && location.search.length > 1 ? location.search : '';
+    return ALAMAT + q;
+  }
+  function muat() {
+    if (!navigator.onLine) { tampilLuring(); return; }
+    $('luring').classList.remove('buka');
+    bingkai.src = alamatAplikasi();
+    dimuat = true;
+  }
+
+  function simpanan() { try { return JSON.parse(localStorage.getItem(KUNCI) || 'null'); } catch (e) { return null; } }
+  function tampilLuring() {
+    var s = simpanan(), d = s && s.data;
+    var baris = d ? [
+      ['Karyawan aktif', d.karyawanAktif], ['Kontrak habis 30 hari', d.kontrakHabis],
+      ['Invoice belum terkirim', d.invoiceMenunggu], ['Invoice bulan ini', d.invoiceBulanIni], ['Surat bulan ini', d.suratBulanIni]
+    ].filter(function (x) { return x[1] != null; }) : [];
+    $('kpi').innerHTML = baris.map(function (x) {
+      return '<div><b>' + String(x[1]).replace(/[<>&]/g, '') + '</b><span>' + x[0] + '</span></div>';
+    }).join('');
+    $('waktu').textContent = s ? 'Tersimpan ' + new Date(s.pada).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : 'Belum ada ringkasan yang tersimpan. Buka aplikasi sekali saat online.';
+    $('luring').classList.add('buka');
+  }
+
+  /* Angka ringkasan dikirim oleh beranda (tanpa nama atau nominal uang). */
+  window.addEventListener('message', function (e) {
+    if (!/\.googleusercontent\.com$/.test(new URL(e.origin).hostname)) return;
+    var m = e.data;
+    if (!m || m.gw !== 'ringkasan' || typeof m.data !== 'object') return;
+    try { localStorage.setItem(KUNCI, JSON.stringify({ data: m.data, pada: m.pada || Date.now() })); } catch (x) {}
+  });
+
+  /* Saat aplikasi sudah terbuka, pemberitahuan koneksi ditangani oleh aplikasi itu sendiri. */
+  window.addEventListener('offline', function () { if (!dimuat) tampilLuring(); });
+  window.addEventListener('online', function () { if (!dimuat) muat(); });
+  $('ulang').addEventListener('click', muat);
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  muat();
+})();
+</script>
+</body>
+</html>
