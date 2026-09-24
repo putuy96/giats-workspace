@@ -71,7 +71,7 @@
     $('kpi').innerHTML = baris.map(function (x) {
       return '<div><b>' + String(x[1]).replace(/[<>&]/g, '') + '</b><span>' + x[0] + '</span></div>';
     }).join('');
-    $('waktu').textContent = s ? 'Tersimpan ' + new Date(s.pada).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : 'Belum ada ringkasan yang tersimpan. Buka aplikasi sekali saat online.';
+    $('waktu').textContent = s ? 'Tersimpan ' + new Date(s.pada).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : 'Ringkasan hanya tersedia setelah masuk saat online.';
     $('luring').classList.add('buka');
   }
 
@@ -79,7 +79,10 @@
   window.addEventListener('message', function (e) {
     if (!/\.googleusercontent\.com$/.test(new URL(e.origin).hostname)) return;
     var m = e.data;
-    if (!m || m.gw !== 'ringkasan' || typeof m.data !== 'object') return;
+    if (!m) return;
+    /* Keluar atau sesi habis: ringkasan dihapus agar tidak tampil untuk orang lain. */
+    if (m.gw === 'keluar') { try { localStorage.removeItem(KUNCI); } catch (x) {} return; }
+    if (m.gw !== 'ringkasan' || typeof m.data !== 'object') return;
     try { localStorage.setItem(KUNCI, JSON.stringify({ data: m.data, pada: m.pada || Date.now() })); } catch (x) {}
   });
 
