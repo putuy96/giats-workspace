@@ -1,7 +1,7 @@
 /* Service Worker GIATS Workspace.
  * Menyimpan kerangka aplikasi (halaman ini, ikon, manifest) agar bisa dibuka tanpa internet.
  * Isi aplikasi tetap dimuat dari Apps Script; Service Worker tidak bisa menyimpan halaman Google. */
-var VERSI = 'gw-kerangka-1';
+var VERSI = 'gw-kerangka-2';   /* dinaikkan 28 Sep 2026: ikon diganti logo monogram G1 */
 var BERKAS = ['./', './index.html', './manifest.webmanifest', './ikon-192.png', './ikon-512.png',
   './ikon-maskable-512.png', './apple-touch-icon.png', './favicon.png'];
 
