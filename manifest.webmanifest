@@ -1,7 +1,7 @@
 {
   "name": "GIATS Workspace",
   "short_name": "GIATS",
-  "description": "Proposal, E-Surat, Roster, Dasbor HR, dan Invoice GIATS dalam satu aplikasi.",
+  "description": "Proposal, E-Surat, Roster, Dasbor HR, Invoice, dan Petty Cash GIATS dalam satu aplikasi.",
   "lang": "id",
   "start_url": "./",
   "scope": "./",

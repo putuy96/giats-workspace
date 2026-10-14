@@ -31,7 +31,7 @@ Repositori publik hanya berisi kerangka dan ikon. Data tetap berada di Google da
 - **iPhone (Safari):** buka alamat → tombol Bagikan → **Tambahkan ke Layar Utama**.
 - **Komputer (Chrome/Edge):** ikon pasang di kolom alamat.
 
-Membuka aplikasi tertentu langsung: tambahkan `?app=roster` (atau `proposal`, `surat`, `hr`, `invoice`) di belakang alamat.
+Membuka aplikasi tertentu langsung: tambahkan `?app=roster` (atau `proposal`, `surat`, `hr`, `invoice`, `petty`) di belakang alamat. Bila aplikasi terpasang terlanjur membuka alamat Apps Script langsung (bilah "script.google.com" di atas), buka sekali `./?bingkai=1` di peramban untuk kembali ke mode bingkai.
 
 ## Perilaku tanpa internet
 
