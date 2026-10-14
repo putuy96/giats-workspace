@@ -29,11 +29,25 @@
   .memuat.buka { display:grid; }
   .memuat img { width:64px; height:64px; border-radius:14px; display:block; margin:0 auto 14px; }
   button { font:inherit; font-weight:700; color:#fff; background:var(--aksen); border:0; border-radius:10px; padding:11px 18px; cursor:pointer; }
+  .tawar { position:fixed; left:12px; right:12px; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:5; display:none; max-width:440px; margin:0 auto;
+    background:var(--panel); border:1px solid var(--garis); border-radius:14px; padding:14px 16px; box-shadow:0 12px 32px rgba(0,0,0,.45); }
+  .tawar.buka { display:block; }
+  .tawar b { display:block; font-size:14px; margin-bottom:2px; }
+  .tawar p { font-size:13px; margin:0 0 12px; }
+  .tawar .aksi { display:flex; gap:8px; justify-content:flex-end; }
+  .tawar .aksi button { padding:9px 14px; }
+  .tawar .aksi .tipis { background:transparent; color:var(--teks2); }
 </style>
 </head>
 <body>
 <iframe id="aplikasi" title="GIATS Workspace" allow="clipboard-write"></iframe>
 <div class="memuat" id="memuat" role="status"><div><img src="ikon-192.png" alt="">Memuat GIATS Workspace…</div></div>
+
+<div class="tawar" id="tawarPush" role="dialog" aria-labelledby="tawarJudul">
+  <b id="tawarJudul">Aktifkan pemberitahuan?</b>
+  <p>Kabar ajuan Petty Cash yang perlu ditindaklanjuti, dana macet, dan status ajuan Anda langsung masuk ke perangkat ini.</p>
+  <div class="aksi"><button type="button" class="tipis" id="pushNanti">Nanti</button><button type="button" id="pushYa">Aktifkan</button></div>
+</div>
 
 <section class="luring" id="luring" aria-live="polite">
   <div class="kotak">
@@ -117,6 +131,8 @@
     clearTimeout(tunggu); $('memuat').classList.remove('buka');
     if (m.gw === 'siap') {
       taruh(KUNCI_LANGSUNG, null);
+      appPush = { win: e.source, asal: e.origin };
+      if (m.adaSesi) siapkanPush(false);
       if (!m.adaSesi) {
         var s = ambil(KUNCI_SESI);
         if (s) { try { e.source.postMessage({ gw: 'sesiAwal', sesi: JSON.parse(s) }, e.origin); } catch (x) {} }
@@ -126,14 +142,102 @@
     }
     /* Sesi dititipkan di sini karena bingkai tanpa kuki tidak menyimpan apa pun setelah ditutup. */
     if (m.gw === 'sesi') {
-      if (m.sesi && m.sesi.token) taruh(KUNCI_SESI, JSON.stringify({ token: String(m.sesi.token), nama: String(m.sesi.nama || ''), peran: String(m.sesi.peran || '') }));
-      else lupakan();
+      if (m.sesi && m.sesi.token) {
+        taruh(KUNCI_SESI, JSON.stringify({ token: String(m.sesi.token), nama: String(m.sesi.nama || ''), peran: String(m.sesi.peran || '') }));
+        appPush = { win: e.source, asal: e.origin };
+        siapkanPush(true);
+      } else { lupakan(); lepasPush(); }
       return;
     }
     /* Keluar atau sesi habis: ringkasan dan sesi titipan dihapus agar tidak tampil untuk orang lain. */
-    if (m.gw === 'keluar') { lupakan(); return; }
+    if (m.gw === 'keluar') { lupakan(); lepasPush(); return; }
+    if (m.gw === 'pushTerdaftar') { pushTerdaftar(m); return; }
     /* Angka ringkasan dikirim oleh beranda (tanpa nama atau nominal uang). */
     if (m.gw === 'ringkasan' && typeof m.data === 'object') taruh(KUNCI, JSON.stringify({ data: m.data, pada: m.pada || Date.now() }));
+  });
+
+  /* ---------- Pemberitahuan dorong ----------
+   * Langganan push hanya bisa dibuat di sini (service worker berjalan di asal pembungkus).
+   * Kunci publik VAPID diambil dari Apps Script; langganan didaftarkan lewat halaman
+   * Workspace yang sedang masuk sehingga terikat ke akunnya. Push yang dikirim server
+   * tidak berisi apa pun; sw.js mengambil isi pesannya memakai kunci langganan. */
+  var KUNCI_PUSH = 'gw.push', KUNCI_PUSH_PUB = 'gw.pushKunciPublik', KUNCI_PUSH_TUNDA = 'gw.pushTunda';
+  var appPush = null;
+  var bisaPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  function bacaJson(k) { try { return JSON.parse(ambil(k) || 'null'); } catch (e) { return null; } }
+  function keServer(isi) {
+    return fetch(ALAMAT, { method: 'POST', body: JSON.stringify(isi) }).then(function (r) { return r.json(); });
+  }
+  function keU8(b64) {
+    var s = atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((b64.length + 3) % 4)), u = new Uint8Array(s.length);
+    for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+    return u;
+  }
+  function kunciPublik() {
+    var k = ambil(KUNCI_PUSH_PUB);
+    if (k) return Promise.resolve(k);
+    return keServer({ push: 'kunci' }).then(function (h) {
+      if (!h || !h.ok || !h.kunci) throw new Error('kunci publik');
+      taruh(KUNCI_PUSH_PUB, h.kunci); return h.kunci;
+    });
+  }
+  function langganan() {
+    return navigator.serviceWorker.ready.then(function (reg) {
+      return reg.pushManager.getSubscription().then(function (s) {
+        return s || kunciPublik().then(function (k) { return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keU8(k) }); });
+      });
+    });
+  }
+  function namaPerangkat() {
+    var u = navigator.userAgent || '';
+    var os = /iPhone|iPad/.test(u) ? 'iOS' : /Android/.test(u) ? 'Android' : /Windows/.test(u) ? 'Windows' : /Mac/.test(u) ? 'Mac' : /Linux/.test(u) ? 'Linux' : 'Perangkat';
+    var pr = /Edg\//.test(u) ? 'Edge' : /SamsungBrowser/.test(u) ? 'Samsung Internet' : /Firefox\//.test(u) ? 'Firefox' : /Chrome\//.test(u) ? 'Chrome' : /Safari\//.test(u) ? 'Safari' : '';
+    return os + (pr ? ' ' + pr : '');
+  }
+  function daftarkanPush() {
+    langganan().then(function (s) {
+      if (appPush) appPush.win.postMessage({ gw: 'pushDaftar', endpoint: s.endpoint, perangkat: namaPerangkat() }, appPush.asal);
+    }).catch(function () {});
+  }
+  /* paksa: baru masuk, jadi langganan perlu diikat ulang ke akun ini. */
+  function siapkanPush(paksa) {
+    if (!bisaPush || !appPush) return;
+    if (Notification.permission === 'granted') {
+      var d = bacaJson(KUNCI_PUSH);
+      if (paksa || !d || !d.kunci || Date.now() - (d.pada || 0) > 7 * 864e5) daftarkanPush();
+      return;
+    }
+    if (Notification.permission === 'default' && !masihBerlaku(KUNCI_PUSH_TUNDA, 14)) $('tawarPush').classList.add('buka');
+  }
+  function pushTerdaftar(m) {
+    if (!m.kunci) return;
+    taruh(KUNCI_PUSH, JSON.stringify({ kunci: m.kunci, pada: Date.now() }));
+    $('tawarPush').classList.remove('buka');
+    /* sw.js membaca kunci dan alamat server dari sini saat push datang. */
+    var simpan = 'caches' in window ? caches.open('gw-push').then(function (c) {
+      return c.put('./__push', new Response(JSON.stringify({ kunci: m.kunci, alamat: ALAMAT }), { headers: { 'Content-Type': 'application/json' } }));
+    }) : Promise.resolve();
+    if (m.baru) simpan.then(function () { return keServer({ push: 'sapa', kunci: m.kunci }); }).catch(function () {});
+  }
+  function lepasPush() {
+    var d = bacaJson(KUNCI_PUSH);
+    taruh(KUNCI_PUSH, null);
+    if ('caches' in window) caches.open('gw-push').then(function (c) { return c.delete('./__push'); }).catch(function () {});
+    if (d && d.kunci) keServer({ push: 'lepas', kunci: d.kunci }).catch(function () {});
+  }
+  $('pushYa').addEventListener('click', function () {
+    $('tawarPush').classList.remove('buka');
+    var sudah = false;
+    var lanjut = function (h) {
+      if (sudah) return; sudah = true;
+      if (h === 'granted') daftarkanPush(); else taruh(KUNCI_PUSH_TUNDA, String(Date.now()));
+    };
+    var j = Notification.requestPermission(lanjut);
+    if (j && j.then) j.then(lanjut);
+  });
+  $('pushNanti').addEventListener('click', function () {
+    taruh(KUNCI_PUSH_TUNDA, String(Date.now()));
+    $('tawarPush').classList.remove('buka');
   });
 
   /* Saat aplikasi sudah terbuka, pemberitahuan koneksi ditangani oleh aplikasi itu sendiri. */
